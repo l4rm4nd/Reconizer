@@ -4,7 +4,7 @@ Python3 script to resolve hostnames to IP addresses and query Shodan's free Inte
 ## How to run
 
 ````
-usage: prscan.py [-h] --hostfile <file> --ipinfo-token <token>
+usage: reconizer.py [-h] --hostfile <file> --ipinfo-token <token>
 
 optional arguments:
   -h, --help              show this help message and exit
@@ -14,7 +14,7 @@ optional arguments:
 
 ## Example run
 ````
-python3 prscan.py --hostfile /home/Desktop/hosts.txt --ipinfo-token 133713371337
+python3 reconizer.py --hostfile /home/Desktop/hosts.txt --ipinfo-token 133713371337
 ````
 
 ## Example results
