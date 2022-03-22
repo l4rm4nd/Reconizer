@@ -111,7 +111,7 @@ def prscan(hostfile):
             country = failstr
         else:
             try:
-                if "ASN" in ipinfo['org']:
+                if ipinfo['org'].startswith('AS'):
                     asn = ipinfo['org'].split(" ", 1)[0]
                     organization = ipinfo['org'].split(" ", 1)[1]
                 else:
