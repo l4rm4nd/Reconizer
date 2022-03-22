@@ -24,5 +24,5 @@ python3 reconizer.py --hostfile /home/Desktop/hosts.txt --ipinfo-token 133713371
 [~] Analyzing ports, CVEs and IP information
 .
 ID;DOMAIN;IP;PORTS;CVE;ASN;ORG;CITY;REGION;COUNTRY
-HOST-0;google.com;142.250.185.78;80,443;N/A;N/A;AS15169 Google LLC;Frankfurt am Main;Hesse;DE
+HOST-0;google.com;142.250.185.78;80,443;N/A;AS15169;Google LLC;Frankfurt am Main;Hessen;DE
 ````
