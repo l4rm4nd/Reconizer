@@ -1,4 +1,4 @@
-# PRScan
+# Reconizer
 Python3 script to resolve hostnames to IP addresses and query Shodan's free InternetDB for ports and CVEs. Furthermore, ipinfo.com is queried for detailed IP information such as ASN, organization (hoster), city, region and country.
 
 ## How to run
