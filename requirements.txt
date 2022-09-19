@@ -1,0 +1,5 @@
+dnspython
+argparse
+shodan
+requests
+tldextract
