@@ -2,9 +2,11 @@
 Python3 script to resolve hostnames to IP addresses and query Shodan's free InternetDB for ports and CVEs. Furthermore, ipinfo.com is queried for detailed IP information such as ASN, organization (hoster), city, region and country.
 
 ## Installation
+````
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
+````
 
 ## How to run
 
