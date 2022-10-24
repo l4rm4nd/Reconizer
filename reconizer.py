@@ -87,7 +87,7 @@ def prscan(hostfile):
     }
         
     print()
-    print('ID;DOMAIN;IP;PORTS;CVE;ASN;ORG;CITY;REGION;COUNTRY')
+    print('ID;ROOT;DOMAIN;IP;PORTS;CVE;ASN;ORG;CITY;REGION;COUNTRY')
     for i in range(len(crtscan['domains'])):
         domain = crtscan['domains'][i]
         ip = crtscan['ips'][i]
@@ -132,7 +132,7 @@ def prscan(hostfile):
         else:
             cves = str(cves)[1:-1].replace(' ','')
 
-        print('HOST-'+str(i) + ';' + str(domain) + ';' + str(ip) + ';' + ports + ';' + cves + ";" + asn + ";" + organization + ";"  + city + ";" + region + ";" + country)
+        print('HOST-' + str(i) + ';' + str(tldextract.extract(domain.strip()).registered_domain) + ';' + str(domain) + ';' + str(ip) + ';' + ports + ';' + cves + ";" + asn + ";" + organization + ";"  + city + ";" + region + ";" + country)
     
 if __name__ == '__main__':
     prscan(hostfile)
