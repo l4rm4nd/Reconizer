@@ -21,7 +21,7 @@ optional arguments:
 
 ## Example run
 ````
-python3 reconizer.py --hostfile /home/Desktop/hosts.txt --ipinfo-token d7770b15365082
+python3 reconizer.py --hostfile /home/Desktop/hosts.txt --ipinfo-token <API-TOKEN>
 ````
 
 ## Example results
