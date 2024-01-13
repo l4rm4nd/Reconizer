@@ -3,3 +3,4 @@ argparse
 shodan
 requests
 tldextract
+tqdm
