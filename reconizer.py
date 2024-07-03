@@ -1,176 +1,181 @@
 import asyncio
-import dns.resolver
-import requests
-import json
-import csv
-import copy
+import aiohttp
+import aiodns
 import tldextract
-import re, dns.resolver
+import csv
 import argparse
-from shodan import Shodan
-from datetime import datetime
+from tqdm.asyncio import tqdm  # Import tqdm for the progress bar
+import json
 
-
-# specify dns server to use
 dns_server = '1.1.1.1'
 
-# specify output filename
-date = datetime.now().strftime("%Y%m%d-%H%M")
-outfile = date + "_Reconizer" + ".csv"
-
-# argparse
 parser = argparse.ArgumentParser("prscan.py")
 parser.add_argument("--hostfile", metavar='<file>', help="A txt file with hosts per newline", type=str, required=True)
 parser.add_argument("--ipinfo-token", metavar='<token>', help="API token for ipinfo.com", type=str, required=True)
+parser.add_argument("--output", metavar='<output>', help="Output CSV filename", type=str, default="reconizer-results.csv")  # Add a default filename
 
 args = parser.parse_args()
 hostfile = args.hostfile
 apitoken = args.ipinfo_token
+output_filename = args.output  # Get the specified output filename from the command line argument
 
-# function to resolve domain to IPv4
-async def resolve_domain(domain, dns_server):
-    dnsresolver = dns.resolver.Resolver()
-    dnsresolver.nameservers = [dns_server]
+async def resolve_dns(domain, resolver):
     try:
-        domain_obj = []
-        domain_obj.append(domain)
-        dnsresolver = list(dnsresolver.resolve(domain, 'A'))
-        domain_obj.append(str(dnsresolver.pop()))
-        return domain_obj
-    except Exception as e:
-        domain_obj = []
-        domain_obj.append(domain)
-        domain_obj.append("N/A")
-        return domain_obj
+        result = await resolver.query(domain, 'A')
+        return result[0].host
+    except Exception:
+        return ""
 
-# function to query shodan's internetdb for known ports and cves as well as ipinfo.io
-async def query_shodan(domain_obj):
+async def fetch_shodan_data(session, ip):
+    try:
+        async with session.get(f"https://internetdb.shodan.io/{ip}") as response:
+            return await response.json()
+    except Exception:
+        return {"ports": [], "vulns": []}
 
-    ip = domain_obj[1]
+async def fetch_ipinfo_data(session, ip, token):
+    try:
+        async with session.get(f"https://ipinfo.io/{ip}?token={token}") as response:
+            return await response.json()
+    except Exception:
+        return {}
 
-    # if the domain previously resolved to an IPv4
-    if ip != "N/A":
-        try:
-            # query InternetDB by shodan for CVE and port information
-            apirequest = requests.get("https://internetdb.shodan.io/{0}".format(ip)).json()
-            openPortsShodan = apirequest['ports']
-            vulnsShodan = apirequest['vulns']
+async def process_domain(domain, resolver, session, token, existing_requests):
+    ip = await resolve_dns(domain, resolver)
+    if ip in existing_requests:
+        return existing_requests[ip]
 
-            # if the results are empty, replace with N/A string
-            if len(openPortsShodan) == 0:
-                openPortsShodan = "N/A"
-            if len(vulnsShodan) == 0:
-                vulnsShodan = "N/A"
-
-        # catching error in case shodan's internetdb is unavailable
-        except:
-            openPortsShodan = "N/A"
-            vulnsShodan = "N/A"
-            
-        try:
-            # query ipinfo.com API for IP information
-            ipinforequest = requests.get("https://ipinfo.io/{0}?token={1}".format(ip,apitoken)).json()
-            ipinfo = ipinforequest
-        except:
-            ipinfo = "N/A"
-
-        # if the results from ipinfo are empty
-        if len(ipinfo) == 0 or ipinfo == "N/A":
-            asn = "N/A"
-            organization = "N/A"
-            city = "N/A"
-            region = "N/A"
-            country = "N/A"
-        # if the results are not empty, process it
-        else:
-            if ipinfo['org'].startswith('AS'):
-                asn = ipinfo['org'].split(" ", 1)[0]
-                organization = ipinfo['org'].split(" ", 1)[1]
-                city = ipinfo['city']
-                region = ipinfo['region']
-                country = ipinfo['country']
-            else:
-                asn = "N/A"
-                organization = ipinfo['org']
-                city = ipinfo['city']
-                region = ipinfo['region']
-                country = ipinfo['country']
-
-        # append results to list object
-        domain_obj.append(openPortsShodan)
-        domain_obj.append(vulnsShodan)
-        domain_obj.append(asn)
-        domain_obj.append(organization)
-        domain_obj.append(city)
-        domain_obj.append(region)
-        domain_obj.append(country)
-
-    # if the domain could not be resolved, insert N/A strings
+    if ip:
+        shodan_data = await fetch_shodan_data(session, ip)
+        ipinfo_data = await fetch_ipinfo_data(session, ip, token)
     else:
-        openPortsShodan = "N/A"
-        vulnsShodan = "N/A"
-        ipinfo = "N/A"
-        asn = "N/A"
-        organization = "N/A"
-        city = "N/A"
-        region = "N/A"
-        country = "N/A"
+        shodan_data = {"ports": [], "vulns": []}
+        ipinfo_data = {}
 
-        domain_obj.append(openPortsShodan)
-        domain_obj.append(vulnsShodan)
-        domain_obj.append(asn)
-        domain_obj.append(organization)
-        domain_obj.append(city)
-        domain_obj.append(region)
-        domain_obj.append(country)
+    result = (ip, shodan_data.get('ports', []), shodan_data.get('vulns', []), ipinfo_data)
+    existing_requests[ip] = result
+    return result
 
-async def main():
-
+async def prscan(hostfile, token, output_filename):
     domains = []
-
-    # open file and read domains line by line
-    with open(hostfile,'r') as fin:
+    with open(hostfile, 'r') as fin:
         lines = fin.readlines()
-    # store each domain in domain list
     for line in lines:
         domains.append(str(line).rstrip("\n"))
-
-    # get unique hosts by converting to set and back
     domains = list(set(domains))
 
-    tasks = []
-    # resolve domains asynchonously
-    print("[~] DNS resolving hostnames to IP")
-    for i in range(len(domains)):
-        tasks.append(asyncio.ensure_future(resolve_domain(domains[i], dns_server)))
-    results = await asyncio.gather(*tasks)
+    resolver = aiodns.DNSResolver(nameservers=[dns_server])
+    async with aiohttp.ClientSession() as session:
+        existing_requests = {}
+        tasks = [process_domain(domain, resolver, session, token, existing_requests) for domain in domains]
 
-    # retrieve port, cve and ip infos asynchonously
-    print("[~] Querying shodan's internet db and ipinfo.io")
-    for i in range(len(results)):
-        tasks.append(asyncio.ensure_future(query_shodan(results[i])))
-    results2 = await asyncio.gather(*tasks)
+        results = await tqdm.gather(*tasks)  # Use tqdm for the progress bar
 
-    # write the CSV
-    with open(outfile, 'w') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['Rootdomain', 'Domain', 'IP', 'Ports', 'CVEs', 'ASN', 'Organization', 'City', 'Region', 'Country'])
+    crtscan = {
+        "domains": domains,
+        "ips": [res[0] for res in results],
+        "openPortsShodan": [res[1] for res in results],
+        "vulnsShodan": [res[2] for res in results],
+        "ipinfo": [res[3] for res in results],
+    }
 
-        try:
-            for obj in results2:
-                obj.insert(0, str(tldextract.extract(obj[0].strip()).registered_domain))
-                writer.writerow(obj)
-        except:
-            pass
+    print()
+    print('ID;ROOT;DOMAIN;IP;PORTS;CVE;ASN;ORG;CITY;REGION;COUNTRY')
+    for i in range(len(crtscan['domains'])):
+        domain = crtscan['domains'][i]
+        ip = crtscan['ips'][i]
+        ports = crtscan['openPortsShodan'][i]
+        cves = crtscan['vulnsShodan'][i]
+        ipinfo = crtscan['ipinfo'][i]
 
-    print("[!] Output CSV " + str(outfile) + " successfully written.")
+        failstr = "N/A"
 
-#loop = asyncio.get_event_loop()
-#loop.run_until_complete(main())
+        if len(ports) == 0:
+            ports = failstr
+        else:
+            ports = str(ports)[1:-1].replace(' ', '')
+        if len(ip) == 0:
+            ip = failstr
+        if len(ipinfo) == 0:
+            asn = failstr
+            organization = failstr
+            city = failstr
+            region = failstr
+            country = failstr
+        else:
+            try:
+                if ipinfo['org'].startswith('AS'):
+                    asn = ipinfo['org'].split(" ", 1)[0]
+                    organization = ipinfo['org'].split(" ", 1)[1]
+                else:
+                    asn = "N/A"
+                    organization = ipinfo['org']
+                city = ipinfo['city']
+                region = ipinfo['region']
+                country = ipinfo['country']
+            except:
+                asn = failstr
+                organization = failstr
+                city = failstr
+                region = failstr
+                country = failstr
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    pass
+        if len(cves) == 0:
+            cves = failstr
+        else:
+            cves = str(cves)[1:-1].replace(' ', '')
+
+        print(f'HOST-{i};{tldextract.extract(domain.strip()).registered_domain};{domain};{ip};{ports};{cves};{asn};{organization};{city};{region};{country}')
+
+    with open(output_filename, mode='w', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['ID', 'ROOT', 'DOMAIN', 'IP', 'PORTS', 'CVE', 'ASN', 'ORG', 'CITY', 'REGION', 'COUNTRY'])
+
+        for i in range(len(crtscan['domains'])):
+            domain = crtscan['domains'][i]
+            ip = crtscan['ips'][i]
+            ports = crtscan['openPortsShodan'][i]
+            cves = crtscan['vulnsShodan'][i]
+            ipinfo = crtscan['ipinfo'][i]
+
+            failstr = "N/A"
+
+            if len(ports) == 0:
+                ports = failstr
+            else:
+                ports = str(ports)[1:-1].replace(' ', '')
+            if len(ip) == 0:
+                ip = failstr
+            if len(ipinfo) == 0:
+                asn = failstr
+                organization = failstr
+                city = failstr
+                region = failstr
+                country = failstr
+            else:
+                try:
+                    if ipinfo['org'].startswith('AS'):
+                        asn = ipinfo['org'].split(" ", 1)[0]
+                        organization = ipinfo['org'].split(" ", 1)[1]
+                    else:
+                        asn = "N/A"
+                        organization = ipinfo['org']
+                    city = ipinfo['city']
+                    region = ipinfo['region']
+                    country = ipinfo['country']
+                except:
+                    asn = failstr
+                    organization = failstr
+                    city = failstr
+                    region = failstr
+                    country = failstr
+
+            if len(cves) == 0:
+                cves = failstr
+            else:
+                cves = str(cves)[1:-1].replace(' ', '')
+
+            csv_writer.writerow([f'HOST-{i}', tldextract.extract(domain.strip()).registered_domain, domain, ip, ports, cves, asn, organization, city, region, country])
+
+if __name__ == '__main__':
+    asyncio.run(prscan(hostfile, apitoken, output_filename))
